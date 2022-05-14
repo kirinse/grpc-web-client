@@ -5,6 +5,8 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::{convert::TryInto, error::Error};
 
+use crate::errors::ClientError;
+
 use byteorder::{BigEndian, ByteOrder};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures::{ready, Stream};
@@ -20,11 +22,13 @@ use self::content_types::*;
 pub(crate) mod content_types {
     use http::{header::CONTENT_TYPE, HeaderMap};
 
+    #[allow(unused)]
     pub(crate) const GRPC_WEB: &str = "application/grpc-web";
     pub(crate) const GRPC_WEB_PROTO: &str = "application/grpc-web+proto";
     pub(crate) const GRPC_WEB_TEXT: &str = "application/grpc-web-text";
     pub(crate) const GRPC_WEB_TEXT_PROTO: &str = "application/grpc-web-text+proto";
 
+    #[allow(unused)]
     pub(crate) fn is_grpc_web(headers: &HeaderMap) -> bool {
         matches!(
             content_type(headers),
@@ -78,18 +82,21 @@ pub(crate) struct GrpcWebCall<B> {
 }
 
 impl<B> GrpcWebCall<B>
-where
-    B: Body<Data = Bytes> + Unpin,
-    B::Error: Error,
+    where
+        B: Body<Data = Bytes> + Unpin,
+        B::Error: Error,
 {
+    #[allow(unused)]
     pub(crate) fn server_request(inner: B, encoding: Encoding) -> Self {
         Self::new(inner, Mode::Decode, encoding, true, false)
     }
 
+    #[allow(unused)]
     pub(crate) fn server_response(inner: B, encoding: Encoding) -> Self {
         Self::new(inner, Mode::Encode, encoding, true, false)
     }
 
+    #[allow(unused)]
     pub(crate) fn client_request(inner: B, encoding: Encoding) -> Self {
         Self::new(inner, Mode::Encode, encoding, false, false)
     }
@@ -163,7 +170,7 @@ where
         frame
     }
 
-    fn handle_frames(&mut self, mut bytes: Bytes) -> Result<Bytes, <B as Body>::Error> {
+    fn handle_frames(&mut self, mut bytes: Bytes) -> Result<Bytes, ClientError> {
         if !self.decode_trailers {
             return Ok(bytes);
         }
@@ -201,9 +208,7 @@ where
                         continue;
                     }
 
-                    let frame_len: usize = BigEndian::read_u32(&self.header_buf[1..])
-                        .try_into()
-                        .unwrap();
+                    let frame_len: usize = BigEndian::read_u32(&self.header_buf[1..]).try_into()?;
                     self.header_buf.clear();
                     if is_trailer {
                         self.header_buf.reserve(frame_len);
@@ -243,16 +248,19 @@ where
 
                     let mut trailers = [httparse::EMPTY_HEADER; 64];
                     header_bytes.extend_from_slice(b"\n"); // parse_headers returns Status::Partial without this
-                    let (_, trailers) =
-                        httparse::parse_headers(header_bytes.as_ref(), &mut trailers)
-                            .unwrap()
-                            .unwrap();
+                    let trailers =
+                        match httparse::parse_headers(header_bytes.as_ref(), &mut trailers)? {
+                            httparse::Status::Complete((_, h)) => h,
+                            httparse::Status::Partial => {
+                                return Err(ClientError::HttpIncompleteParseError)
+                            }
+                        };
 
                     self.trailers.reserve(trailers.len());
                     for h in trailers {
                         self.trailers.append(
-                            HeaderName::from_bytes(h.name.as_bytes()).unwrap(),
-                            HeaderValue::from_bytes(h.value).unwrap(),
+                            HeaderName::from_bytes(h.name.as_bytes())?,
+                            HeaderValue::from_bytes(h.value)?,
                         );
                     }
 
@@ -265,9 +273,9 @@ where
 }
 
 impl<B> GrpcWebCall<B>
-where
-    B: Body<Data = Bytes> + Unpin,
-    B::Error: Error,
+    where
+        B: Body<Data = Bytes> + Unpin,
+        B::Error: Error,
 {
     fn poll_decode(
         mut self: Pin<&mut Self>,
@@ -293,10 +301,10 @@ where
             },
 
             Encoding::None => match ready!(Pin::new(&mut self.inner).poll_data(cx)) {
-                Some(res) => Poll::Ready(Some(
-                    res.and_then(|b| self.handle_frames(b))
-                        .map_err(internal_error),
-                )),
+                Some(res) => Poll::Ready(Some(match res {
+                    Ok(b) => self.handle_frames(b).map_err(internal_error),
+                    Err(e) => Err(internal_error(e)),
+                })),
                 None => Poll::Ready(None),
             },
         }
@@ -338,9 +346,9 @@ where
 }
 
 impl<B> Body for GrpcWebCall<B>
-where
-    B: Body<Data = Bytes> + Unpin,
-    B::Error: Error,
+    where
+        B: Body<Data = Bytes> + Unpin,
+        B::Error: Error,
 {
     type Data = Bytes;
     type Error = Status;
@@ -366,10 +374,10 @@ where
             if self.state == State::Done {
                 return Poll::Ready(Ok(Some(mem::replace(&mut self.trailers, HeaderMap::new()))));
             }
-            match ready!(self.as_mut().poll_decode(cx)) {
-                Some(Err(e)) => return Poll::Ready(Err(e)),
-                _ => {}
-            };
+            if let Some(Err(e)) = ready!(self.as_mut().poll_decode(cx)) {
+                return Poll::Ready(Err(e))
+                // _ => {}
+            }
         }
     }
 
@@ -383,9 +391,9 @@ where
 }
 
 impl<B> Stream for GrpcWebCall<B>
-where
-    B: Body<Data = Bytes> + Unpin,
-    B::Error: Error,
+    where
+        B: Body<Data = Bytes> + Unpin,
+        B::Error: Error,
 {
     type Item = Result<Bytes, Status>;
 
@@ -399,11 +407,12 @@ impl Encoding {
         Self::from_header(headers.get(header::CONTENT_TYPE))
     }
 
+    #[allow(unused)]
     pub(crate) fn from_accept(headers: &HeaderMap) -> Encoding {
         Self::from_header(headers.get(header::ACCEPT))
     }
 
-    pub(crate) fn to_content_type(&self) -> &'static str {
+    pub(crate) fn to_content_type(self) -> &'static str {
         match self {
             Encoding::Base64 => GRPC_WEB_TEXT_PROTO,
             Encoding::None => GRPC_WEB_PROTO,
