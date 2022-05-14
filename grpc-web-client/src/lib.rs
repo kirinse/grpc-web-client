@@ -10,11 +10,12 @@ use http::{header::HeaderName, request::Request, response::Response, HeaderMap, 
 use http_body::Body;
 use js_sys::{Array, Uint8Array};
 use std::pin::Pin;
-use tonic::{body::BoxBody, client::GrpcService, Status};
+use tonic::{body::BoxBody, Status};
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use wasm_streams::ReadableStream;
 use web_sys::{Headers, RequestInit};
+use tower_service::Service;
 
 pub type CredentialsMode = web_sys::RequestCredentials;
 
@@ -109,17 +110,17 @@ impl Client {
     }
 }
 
-impl GrpcService<BoxBody> for Client {
-    type ResponseBody = BoxBody;
+impl Service<Request<BoxBody>> for Client {
+    type Response = Response<BoxBody>;
     type Error = ClientError;
-    type Future = Pin<Box<dyn Future<Output = Result<Response<BoxBody>, ClientError>>>>;
+    type Future = Pin<Box<dyn Future<Output=Result<Response<BoxBody>, ClientError>>>>;
 
     fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, rpc: Request<BoxBody>) -> Self::Future {
-        Box::pin(self.clone().request(rpc))
+    fn call(&mut self, req: Request<BoxBody>) -> Self::Future {
+        Box::pin(self.clone().request(req))
     }
 }
 
