@@ -23,6 +23,8 @@ pub enum ClientError {
     UnexpectedOptionNone(&'static str),
     #[error("{0:?}")]
     WebSysErr(JsValue),
+    #[error("Invalid Uri")]
+    InvalidUri,
 }
 
 impl From<JsValue> for ClientError {

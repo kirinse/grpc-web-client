@@ -9,7 +9,9 @@ use wasm_bindgen_test::*;
 
 #[wasm_bindgen_test]
 async fn hello_world() {
-    let client = Client::new("http://127.0.0.1:8080".to_string());
+    // let client = Client::new("http://127.0.0.1:8080".to_string());
+    let uri = "http://127.0.0.1:8080".try_into().expect("to be valid Uri");
+    let client = Client::new(&uri).expect("to create Client");
     let mut client = greeter_client::GreeterClient::new(client);
 
     let request = tonic::Request::new(HelloRequest {
@@ -22,7 +24,8 @@ async fn hello_world() {
 
 #[wasm_bindgen_test]
 async fn echo_unary() {
-    let client = Client::new("http://127.0.0.1:8080".to_string());
+    let uri = "http://127.0.0.1:8080".try_into().expect("to be valid Uri");
+    let client = Client::new(&uri).expect("to create Client");
     let mut client = echo_client::EchoClient::new(client);
 
     let request = tonic::Request::new(EchoRequest {
@@ -35,7 +38,8 @@ async fn echo_unary() {
 
 #[wasm_bindgen_test]
 async fn echo_server_stream() {
-    let client = Client::new("http://127.0.0.1:8080".to_string());
+    let uri = "http://127.0.0.1:8080".try_into().expect("to be valid Uri");
+    let client = Client::new(&uri).expect("to create Client");
     let mut client = echo_client::EchoClient::new(client);
 
     let request = tonic::Request::new(EchoRequest {
